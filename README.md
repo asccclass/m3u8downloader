@@ -1,6 +1,6 @@
 # M3U8 網頁偵測與下載工具
 
-`fetchz.go` 已合併至 `main.go`。程式可直接下載 M3U8，或透過 Chrome 監聽網頁請求，收集所有偵測到的 M3U8 網址後逐一下載、解密 AES-128 切片，並使用 FFmpeg 轉封裝成 MP4。
+本程式可直接下載 M3U8，或透過 Chrome 監聽網頁請求，收集所有偵測到的 M3U8 網址後逐一下載、解密 AES-128 切片，並使用 FFmpeg 轉封裝成 MP4。
 
 ## 主要功能
 
@@ -23,17 +23,17 @@
 以下以 Windows PowerShell 為例。
 
 1. 安裝 Go、Google Chrome 或 Chromium，以及 FFmpeg。
-2. 將 Go 和 FFmpeg 的執行檔目錄加入 `PATH`。例如 FFmpeg 位於 `D:\\ffmpeg\\ffmpeg.exe`，就將 `D:\\ffmpeg` 加入 `PATH`，然後重新開啟 PowerShell。
+2. 將 Go 和 FFmpeg 的執行檔目錄加入 `PATH`。例如 FFmpeg 位於 `D:\\\\ffmpeg\\\\ffmpeg.exe`，就將 `D:\\\\ffmpeg` 加入 `PATH`，然後重新開啟 PowerShell。
 3. 進入專案目錄，確認指令可用，並下載 Go 相依套件：
 
 ```powershell
-cd D:\\myprograms\\m3u8downloader
+cd D:\\\\myprograms\\\\m3u8downloader
 go version
 ffmpeg -version
 go mod download
 ```
 
-4. 執行下方的網頁下載或直接下載指令，將範例網址換成實際網址。網址與檔案路徑建議保留雙引號，避免網址中的 `\&` 或路徑中的空白被 PowerShell 解讀。
+4. 執行下方的網頁下載或直接下載指令，將範例網址換成實際網址。網址與檔案路徑建議保留雙引號，避免網址中的 `\\\&` 或路徑中的空白被 PowerShell 解讀。
 
 ## 下載網頁內的影片
 
@@ -41,7 +41,7 @@ go mod download
 go run main.go -url "https://example.com/video-page" -out "videos/movie.mp4" -wait 10
 ```
 
-預設在網頁載入後繼續監聽 6 秒；可用 `-wait` 延長。相同網址只處理一次，含不同查詢參數的網址視為不同項目。只有一筆時輸出 `movie.mp4`，多筆時依捕獲順序輸出 `movie\_001.mp4`、`movie\_002.mp4` 等，並自動建立輸出目錄。
+預設在網頁載入後繼續監聽 6 秒；可用 `-wait` 延長。相同網址只處理一次，含不同查詢參數的網址視為不同項目。只有一筆時輸出 `movie.mp4`，多筆時依捕獲順序輸出 `movie\\\_001.mp4`、`movie\\\_002.mp4` 等，並自動建立輸出目錄。
 
 執行流程如下：
 
@@ -55,9 +55,9 @@ go run main.go -url "https://example.com/video-page" -out "videos/movie.mp4" -wa
 
 ```text
 videos/
-  movie\_001.mp4
-  movie\_002.mp4
-  movie\_003.mp4
+  movie\\\_001.mp4
+  movie\\\_002.mp4
+  movie\\\_003.mp4
 ```
 
 若網頁載入較慢，可延長等待時間並調整切片下載數：
@@ -71,7 +71,7 @@ go run main.go -url "https://example.com/video-page" -out "videos/movie.mp4" -wa
 ## 直接下載 M3U8
 
 ```powershell
-go run main.go -m3u8 "https://example.com/index.m3u8?auth\_key=..." -out "movie.mp4" -c 6
+go run main.go -m3u8 "https://example.com/index.m3u8?auth\\\_key=..." -out "movie.mp4" -c 6
 ```
 
 `-m3u8` 直接解析播放清單並下載，不啟動瀏覽器，也不需要安裝 Chrome。網址可以不含 `.m3u8` 副檔名；請保留完整驗證參數。不可與 `-url` 同時使用，也不可搭配 `-mode page`。
@@ -120,7 +120,7 @@ HTTP 403 表示來源拒絕存取。若顯示 Cloudflare 拒絕存取，來源�
 
 影片逐一下載；單筆失敗會繼續處理下一筆，最後列出成功與失敗數。有任何失敗時以非零狀態碼結束。切片不完整時不輸出 MP4；FFmpeg 轉封裝失敗時保留 TS，供後續處理。輸出檔名已存在時會覆寫。
 
-TS 暫存檔位於輸出目錄，名稱為 `temp\_merged\_隨機字串.ts`；轉封裝成功後預設刪除，加上 `-keep-ts` 才會保留。多筆下載失敗時不會重新編號，例如第 2 筆失敗，仍可能得到 `movie\_001.mp4` 與 `movie\_003.mp4`。
+TS 暫存檔位於輸出目錄，名稱為 `temp\\\_merged\\\_隨機字串.ts`；轉封裝成功後預設刪除，加上 `-keep-ts` 才會保留。多筆下載失敗時不會重新編號，例如第 2 筆失敗，仍可能得到 `movie\\\_001.mp4` 與 `movie\\\_003.mp4`。
 
 ## 編譯與執行
 
@@ -128,7 +128,7 @@ TS 暫存檔位於輸出目錄，名稱為 `temp\_merged\_隨機字串.ts`；轉
 
 ```powershell
 go build -o m3u8-dl.exe .
-.\\m3u8-dl.exe -url "https://example.com/video-page" -out "movie.mp4" -wait 10
+.\\\\m3u8-dl.exe -url "https://example.com/video-page" -out "movie.mp4" -wait 10
 ```
 
 查看完整參數說明：
@@ -136,7 +136,7 @@ go build -o m3u8-dl.exe .
 ```powershell
 go run main.go -h
 # 或使用已編譯的程式
-.\\m3u8-dl.exe -h
+.\\\\m3u8-dl.exe -h
 ```
 
 ## 常見問題
