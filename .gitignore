@@ -1,0 +1,7 @@
+envfile
+config/
+downloads/
+*.exe
+*.test
+test-results/
+*.mp4
