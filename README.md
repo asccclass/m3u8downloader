@@ -244,7 +244,7 @@ go vet ./...
 ### Missav
 
 ```
-go run . -m3u8 "https://surrit.com/8ef39691-6a8c-4c09-a28c-53460d3ff227/720p/video.m3u8" -out "out.mp4" -referer "https://missav.ai/" -user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+go run . -out "out.mp4" -referer "https://missav.ai/" -user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" -m3u8 "https://surrit.com/8ef39691-6a8c-4c09-a28c-53460d3ff227/720p/video.m3u8"
 ```
 
 目前自動化測試涵蓋播放清單重新導向、相對路徑、驗證參數與金鑰解析、循環引用，以及切片缺失時不建立輸出檔案。
