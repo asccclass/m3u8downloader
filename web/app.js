@@ -375,6 +375,22 @@ $("preview-button").onclick = async () => {
   }
 };
 let createPending = null;
+const clearUrlWhenFinished = new Map();
+
+function clearCompletedJobUrl(j) {
+  const submittedUrl = clearUrlWhenFinished.get(j.id);
+  if (!submittedUrl) return;
+  if (j.state !== "succeeded") {
+    if (["failed", "partial_failed", "cancelled"].includes(j.state))
+      clearUrlWhenFinished.delete(j.id);
+    return;
+  }
+  clearUrlWhenFinished.delete(j.id);
+  if ($("job-url").value.trim() !== submittedUrl) return;
+  $("job-url").value = "";
+  invalidate();
+}
+
 $("job-form").onsubmit = async (e) => {
   e.preventDefault();
   $("create-button").disabled = true;
@@ -385,7 +401,11 @@ $("job-form").onsubmit = async (e) => {
       createPending = { serialized, key: crypto.randomUUID() };
     const j = await api("/jobs", body(req, createPending.key));
     createPending = null;
-    jobs.set(j.id, j);
+    clearUrlWhenFinished.set(j.id, req.url);
+    const current = jobs.get(j.id),
+      latest = current && current.revision > j.revision ? current : j;
+    jobs.set(j.id, latest);
+    clearCompletedJobUrl(latest);
     renderJobs();
     taskHeaders.clearValues();
     taskBrowser.clearValues();
@@ -852,9 +872,11 @@ function connect() {
       removedJobs.clear();
       if (instance !== ev.instanceId) {
         jobs.clear();
+        clearUrlWhenFinished.clear();
         instance = ev.instanceId;
       }
       jobs = new Map(ev.data.jobs.map((j) => [j.id, j]));
+      for (const j of jobs.values()) clearCompletedJobUrl(j);
       attempt = 0;
       connection("已連線 · 即時同步", true);
       renderJobs();
@@ -866,6 +888,7 @@ function connect() {
       const old = jobs.get(ev.data.id);
       if (!old || ev.data.revision > old.revision) {
         jobs.set(ev.data.id, ev.data);
+        clearCompletedJobUrl(ev.data);
         renderJobs();
       }
     }
