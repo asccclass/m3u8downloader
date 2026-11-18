@@ -1,0 +1,5 @@
+SystemName=M3U8Downloader
+# Generate a personal random key (at least 32 bytes), do not reuse examples.
+# Recommended: go run . -init-config
+SessionCookieAuthKey=
+TLSAutoEnabled=false

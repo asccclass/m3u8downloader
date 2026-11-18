@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>M3U8 下載工作台</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href="/"
+          ><span class="brand-icon">↓</span
+          ><span>STREAM<small>下載工作台</small></span></a
+        >
+        <div class="nav-label">工作空間</div>
+        <nav>
+          <button class="nav active" data-view="tasks">下載任務 ↗</button
+          ><button class="nav" data-view="profiles">網站設定 ⚙</button>
+        </nav>
+        <div class="sidebar-foot">
+          <span class="dot"></span> 本機私有工作空間<small
+            >檔案儲存於此電腦<br />任務歷史保留至服務關閉</small
+          >
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <span class="eyebrow">M3U8 DOWNLOADER</span>
+            <h1 id="page-title">下載任務</h1>
+            <p id="page-description">從網址到影片，每個處理階段都看得見。</p>
+          </div>
+          <div class="connection">
+            <span id="connection-dot" class="dot muted"></span
+            ><span id="connection" role="status">連線中</span>
+          </div>
+        </header>
+        <div id="notice" class="notice" role="status" hidden></div>
+        <section id="tasks-view">
+          <div id="stats" class="stats"></div>
+          <div class="workspace">
+            <section class="panel composer">
+              <div class="panel-heading">
+                <h2>新增下載</h2>
+                <span class="tag">NEW TASK</span>
+              </div>
+              <form id="job-form">
+                <label for="job-profile">下載設定</label
+                ><select id="job-profile">
+                  <option value="auto">自動比對網站</option>
+                  <option value="none">不使用網站設定</option>
+                </select>
+                <label for="job-url">來源網址 *</label
+                ><input
+                  id="job-url"
+                  type="url"
+                  required
+                  placeholder="https://example.com/video"
+                  autocomplete="off"
+                /><small id="input-hint">輸入網頁或直接 M3U8 網址。</small>
+                <div class="two-col">
+                  <div>
+                    <label for="job-mode">下載方式</label
+                    ><select id="job-mode">
+                      <option value="auto">自動辨識</option>
+                      <option value="page">網頁偵測</option>
+                      <option value="m3u8">直接 M3U8</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="job-output">輸出名稱</label
+                    ><input
+                      id="job-output"
+                      value="output.mp4"
+                      maxlength="120"
+                      required
+                    />
+                  </div>
+                </div>
+                <details class="advanced">
+                  <summary>進階參數與 Header ＋</summary>
+                  <div class="two-col">
+                    <div>
+                      <label for="job-wait">偵測等待（秒）</label
+                      ><input
+                        id="job-wait"
+                        type="number"
+                        min="0"
+                        max="300"
+                        placeholder="繼承設定／6"
+                      />
+                    </div>
+                    <div>
+                      <label for="job-concurrency">切片並行數</label
+                      ><input
+                        id="job-concurrency"
+                        type="number"
+                        min="1"
+                        max="16"
+                        placeholder="繼承設定／6"
+                      />
+                    </div>
+                  </div>
+                  <label for="job-keep">本次 TS 保留方式</label
+                  ><select id="job-keep">
+                    <option value="">繼承網站設定</option>
+                    <option value="true">保留 TS</option>
+                    <option value="false">成功後清理 TS</option></select
+                  ><small
+                    >未填欄位沿用設定。以下僅覆蓋本次，不會改寫已儲存設定。</small
+                  >
+                  <div id="job-headers"></div>
+                  <div id="job-browser"></div>
+                  <div id="job-query"></div>
+                </details>
+                <div id="preview" class="preview" hidden></div>
+                <div class="form-actions">
+                  <button
+                    type="button"
+                    id="preview-button"
+                    class="button secondary"
+                  >
+                    預覽設定</button
+                  ><button
+                    type="submit"
+                    class="button primary"
+                    id="create-button"
+                  >
+                    加入下載佇列 ＋
+                  </button>
+                </div>
+                <small class="fine-print"
+                  >偵測模式需要 Chrome。Cookie
+                  不會自動從瀏覽器帶入。影片存於伺服器的 downloads
+                  目錄，也可於完成後下載。</small
+                >
+              </form>
+            </section>
+            <section class="panel queue">
+              <div class="panel-heading">
+                <div>
+                  <h2>處理佇列</h2>
+                  <small>同時執行 1 個任務，影片切片並行下載</small>
+                </div>
+                <button
+                  class="icon-button"
+                  id="refresh-jobs"
+                  aria-label="重新整理任務"
+                >
+                  ↻
+                </button>
+              </div>
+              <div class="queue-toolbar">
+                <label for="job-filter" class="sr-only">篩選任務</label
+                ><select id="job-filter">
+                  <option value="all">全部任務</option>
+                  <option value="running">執行中</option>
+                  <option value="queued">等待中</option>
+                  <option value="succeeded">成功</option>
+                  <option value="partial_failed">部分成功</option>
+                  <option value="failed">失敗</option>
+                  <option value="cancelled">取消</option></select
+                ><span id="job-count"></span>
+              </div>
+              <div id="jobs" aria-live="polite"></div>
+              <div class="queue-note">
+                任務歷史僅在本次服務期間保留，網站設定與成果檔案會保留。
+              </div>
+            </section>
+          </div>
+        </section>
+        <section id="profiles-view" hidden>
+          <div class="profile-layout">
+            <section class="panel">
+              <div class="panel-heading">
+                <h2>網站下載設定</h2>
+                <button class="button secondary small" id="new-profile">
+                  ＋ 新增
+                </button>
+              </div>
+              <p class="panel-copy">
+                為每個網站記住不同的下載方式、Header 與參數。
+              </p>
+              <div class="template-bar">
+                <label for="template-select">從範本開始</label
+                ><select id="template-select">
+                  <option value="">選擇可編輯範本…</option>
+                </select>
+              </div>
+              <div id="profile-list"></div>
+            </section>
+            <section class="panel profile-editor">
+              <div class="panel-heading">
+                <h2 id="editor-title">新增網站設定</h2>
+                <span class="tag">SITE PROFILE</span>
+              </div>
+              <form id="profile-form">
+                <input id="profile-id" type="hidden" /><input
+                  id="profile-revision"
+                  type="hidden"
+                  value="0"
+                /><label for="profile-name">設定名稱</label
+                ><input
+                  id="profile-name"
+                  required
+                  maxlength="80"
+                  placeholder="例如：我的影片網站"
+                />
+                <div class="two-col">
+                  <div>
+                    <label for="profile-mode">下載方式</label
+                    ><select id="profile-mode">
+                      <option value="m3u8">直接 M3U8</option>
+                      <option value="page">網頁偵測</option>
+                      <option value="auto">自動辨識</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="check enable"
+                      ><input id="profile-enabled" type="checkbox" checked />
+                      啟用此設定</label
+                    >
+                  </div>
+                </div>
+                <label for="profile-page-hosts">網站網域</label
+                ><textarea
+                  id="profile-page-hosts"
+                  rows="2"
+                  placeholder="missav.ai（每行一筆）"
+                ></textarea
+                ><label for="profile-media-hosts">媒體／CDN 網域</label
+                ><textarea
+                  id="profile-media-hosts"
+                  rows="2"
+                  placeholder="surrit.com（每行一筆）"
+                ></textarea
+                ><small
+                  >只填 hostname，可加 :port；*.example.com
+                  允許子網域。頁面網站與 M3U8 主機可以不同。</small
+                >
+                <div class="two-col">
+                  <div>
+                    <label for="profile-wait">偵測等待（秒）</label
+                    ><input
+                      id="profile-wait"
+                      type="number"
+                      value="6"
+                      min="0"
+                      max="300"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label for="profile-concurrency">切片並行數</label
+                    ><input
+                      id="profile-concurrency"
+                      type="number"
+                      value="6"
+                      min="1"
+                      max="16"
+                      required
+                    />
+                  </div>
+                </div>
+                <label class="check"
+                  ><input id="profile-keep" type="checkbox" /> 保留轉封裝前的
+                  TS</label
+                >
+                <div id="profile-headers"></div>
+                <div id="profile-browser"></div>
+                <div id="profile-query"></div>
+                <p class="storage-note">
+                  設定儲存在本機。勾選保存的 Cookie、Token 或 Query
+                  值會以明文寫入受權限限制的檔案；未勾選的敏感值不會保存。既有秘密不會回顯。
+                </p>
+                <div class="form-actions">
+                  <button
+                    type="button"
+                    class="button secondary"
+                    id="reset-profile"
+                  >
+                    清空</button
+                  ><button type="submit" class="button primary">
+                    儲存網站設定
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </section>
+        <footer>
+          <span>STREAM / LOCAL WORKSPACE</span
+          ><span id="dependencies">檢查下載環境中…</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="retry-dialog">
+      <form id="retry-form">
+        <h2>重試失敗影片</h2>
+        <p>
+          已成功的影片不會重複下載。可補上本次
+          Header，或明確選用目前的網站設定。
+        </p>
+        <input id="retry-id" type="hidden" /><label for="retry-profile"
+          >使用設定</label
+        ><select id="retry-profile">
+          <option value="none">保留原任務參數（重新提供秘密）</option>
+        </select>
+        <div id="retry-headers"></div>
+        <div class="form-actions">
+          <button type="button" class="button secondary" id="close-retry">
+            返回</button
+          ><button type="submit" class="button primary">建立重試任務</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
