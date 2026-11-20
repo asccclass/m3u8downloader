@@ -230,11 +230,15 @@ loop:
 	defer os.Remove(tmpName)
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-nostdin", "-y", "-v", "error", "-i", tsName, "-c", "copy", "-movflags", "+faststart", tmpName)
 	cmd.WaitDelay = 2 * time.Second
-	if err = cmd.Run(); err != nil {
+	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		preserve = true
+		errMsg := strings.TrimSpace(string(out))
+		if errMsg != "" {
+			return fmt.Errorf("FFmpeg 轉封裝失敗 (%s)，已保留 TS %s", errMsg, filepath.Base(tsName))
+		}
 		return fmt.Errorf("FFmpeg 轉封裝失敗，已保留 TS %s", filepath.Base(tsName))
 	}
 	if ctx.Err() != nil {

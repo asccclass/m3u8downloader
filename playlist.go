@@ -90,6 +90,7 @@ func parsePlaylist(targetURL string, visited map[string]bool, client *http.Clien
 	var currentKey *KeyInfo
 	mediaSeq := 0
 	index := 0
+	currentMapURI := ""
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -114,6 +115,28 @@ func parsePlaylist(targetURL string, visited map[string]bool, client *http.Clien
 
 		if strings.HasPrefix(line, "#EXT-X-KEY:") {
 			currentKey = parseKeyTag(line, baseUrlStr, searchParams)
+			continue
+		}
+
+		if strings.HasPrefix(line, "#EXT-X-MAP:") {
+			mapURL := parseMapTag(line, baseUrlStr, searchParams)
+			if mapURL != "" && mapURL != currentMapURI {
+				currentMapURI = mapURL
+				var keyURI string
+				var iv []byte
+				if currentKey != nil {
+					keyURI = currentKey.URI
+					iv = currentKey.IV
+				}
+				segments = append(segments, Segment{
+					Index:  index,
+					URL:    mapURL,
+					KeyURI: keyURI,
+					IV:     iv,
+					SeqNum: 0,
+				})
+				index++
+			}
 			continue
 		}
 
@@ -209,6 +232,27 @@ func parseKeyTag(tagLine, baseUrlStr, searchParams string) *KeyInfo {
 		URI: keyURI,
 		IV:  ivBytes,
 	}
+}
+
+func parseMapTag(tagLine, baseUrlStr, searchParams string) string {
+	idx := strings.Index(tagLine, "URI=")
+	if idx == -1 {
+		return ""
+	}
+	sub := strings.TrimSpace(tagLine[idx+4:])
+	if strings.HasPrefix(sub, "\"") {
+		sub = sub[1:]
+		end := strings.Index(sub, "\"")
+		if end == -1 {
+			return ""
+		}
+		return resolveMediaURL(baseUrlStr, sub[:end], searchParams)
+	}
+	end := strings.IndexAny(sub, ", \t\r\n")
+	if end != -1 {
+		sub = sub[:end]
+	}
+	return resolveMediaURL(baseUrlStr, sub, searchParams)
 }
 
 func downloadAndDecryptSegment(client *http.Client, seg Segment, keyCache *map[string][]byte, mu *sync.Mutex) ([]byte, error) {

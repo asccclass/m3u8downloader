@@ -92,6 +92,38 @@ func TestCloudflareForbiddenExplainsFailure(t *testing.T) {
 	}
 }
 
+func TestExtXMapParsing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlist.m3u8":
+			fmt.Fprint(w, "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-MAP:URI=\"init.m4s\"\n#EXTINF:6.0,\nseg1.m4s\n#EXTINF:6.0,\nseg2.m4s\n#EXT-X-ENDLIST\n")
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	segments, err := parseM3U8(server.URL + "/playlist.m3u8")
+	if err != nil {
+		t.Fatalf("parseM3U8 failed: %v", err)
+	}
+	if len(segments) != 3 {
+		t.Fatalf("expected 3 segments (1 init + 2 media), got %d", len(segments))
+	}
+	if segments[0].URL != server.URL+"/init.m4s" {
+		t.Errorf("expected first segment to be init.m4s, got %s", segments[0].URL)
+	}
+	if segments[0].Index != 0 {
+		t.Errorf("expected init segment index 0, got %d", segments[0].Index)
+	}
+	if segments[1].URL != server.URL+"/seg1.m4s" || segments[1].Index != 1 {
+		t.Errorf("unexpected seg1: %+v", segments[1])
+	}
+	if segments[2].URL != server.URL+"/seg2.m4s" || segments[2].Index != 2 {
+		t.Errorf("unexpected seg2: %+v", segments[2])
+	}
+}
+
 func runWithArgs(t *testing.T, args ...string) error {
 	t.Helper()
 	previousFlags, previousArgs := flag.CommandLine, os.Args
