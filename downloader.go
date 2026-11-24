@@ -54,7 +54,7 @@ func (t *contextTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 		count = t.count != nil && t.segments[prior.URL.String()]
 	}
-	if count && resp.StatusCode == http.StatusOK {
+	if count && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusPartialContent) {
 		resp.Body = &countBody{ReadCloser: resp.Body, n: t.count}
 	}
 	resp.Body = &cancelBody{ReadCloser: resp.Body, cancel: cancel, stop: stop}
@@ -83,11 +83,14 @@ func (b *countBody) Read(p []byte) (int, error) {
 // Each segment is bounded in memory and spooled to disk; memory does not grow
 // with the duration of a movie. Only the coordinator emits progress callbacks.
 func downloadContext(ctx context.Context, source, output string, concurrency int, keep bool, client *http.Client, emit func(Progress)) error {
+	defer client.CloseIdleConnections()
 	if concurrency < 1 {
 		return fmt.Errorf("無效並行數")
 	}
 	var bytes atomic.Int64
-	tr := &contextTransport{ctx: ctx, base: client.Transport}
+	workCtx, stopWork := context.WithCancel(ctx)
+	defer stopWork()
+	tr := &contextTransport{ctx: workCtx, base: client.Transport}
 	if tr.base == nil {
 		tr.base = http.DefaultTransport
 	}
@@ -116,6 +119,15 @@ func downloadContext(ctx context.Context, source, output string, concurrency int
 		return fmt.Errorf("無法建立切片暫存目錄")
 	}
 	defer os.RemoveAll(spool)
+	resumeDir, err := prepareResumeDir(output)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if ctx.Err() != nil {
+			os.RemoveAll(resumeDir)
+		}
+	}()
 	tr.segments = map[string]bool{}
 	for _, s := range segments {
 		tr.segments[s.URL] = true
@@ -129,17 +141,27 @@ func downloadContext(ctx context.Context, source, output string, concurrency int
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	keys := map[string][]byte{}
+	var firstSegmentErr error
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for s := range tasks {
-				if ctx.Err() != nil {
+				if workCtx.Err() != nil {
 					continue
 				}
-				data, e := downloadAndDecryptSegment(&cc, s, &keys, &mu)
+				data, e := downloadAndDecryptSegment(&cc, s, &keys, &mu, segmentResume{ctx: workCtx, path: filepath.Join(resumeDir, fmt.Sprintf("%09d.part", s.Index))})
 				if e == nil {
 					e = os.WriteFile(filepath.Join(spool, fmt.Sprintf("%09d", s.Index)), data, 0600)
+				}
+				// Once another segment has exhausted its retries, active
+				// requests are cancelled. Do not report those secondary
+				// cancellations as additional segment failures.
+				if e != nil && workCtx.Err() != nil && ctx.Err() == nil {
+					continue
+				}
+				if e != nil {
+					e = fmt.Errorf("切片 #%d：%w", s.Index, e)
 				}
 				results <- e
 			}
@@ -150,7 +172,7 @@ func downloadContext(ctx context.Context, source, output string, concurrency int
 		for _, s := range segments {
 			select {
 			case tasks <- s:
-			case <-ctx.Done():
+			case <-workCtx.Done():
 				return
 			}
 		}
@@ -167,6 +189,12 @@ loop:
 			}
 			if e != nil {
 				p.Failed++
+				if firstSegmentErr == nil {
+					firstSegmentErr = e
+					// Stop feeding later segments and cancel active requests as
+					// soon as one segment exhausts all retries.
+					stopWork()
+				}
 			} else {
 				p.Succeeded++
 			}
@@ -179,8 +207,12 @@ loop:
 		return ctx.Err()
 	}
 	if p.Failed > 0 {
+		if firstSegmentErr != nil {
+			return fmt.Errorf("%d 個切片下載失敗，未輸出不完整的影片（原因：%v）", p.Failed, firstSegmentErr)
+		}
 		return fmt.Errorf("%d 個切片下載失敗，未輸出不完整的影片", p.Failed)
 	}
+	os.RemoveAll(resumeDir)
 	p.Phase = "merging"
 	report()
 	ts, err := os.CreateTemp(filepath.Dir(output), "temp_merged_*.ts")
@@ -247,6 +279,8 @@ loop:
 	if err = os.Rename(tmpName, output); err != nil {
 		return fmt.Errorf("發布 MP4 失敗")
 	}
+	// Raw encrypted parts are useful only until the MP4 is successfully published.
+	os.RemoveAll(resumeDir)
 	p.Phase = "completed"
 	report()
 	return nil

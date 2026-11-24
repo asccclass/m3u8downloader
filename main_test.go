@@ -92,6 +92,48 @@ func TestCloudflareForbiddenExplainsFailure(t *testing.T) {
 	}
 }
 
+func TestReadResourceRetriesTransientCDNFailure(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	data, err := readResource(http.DefaultClient, server.URL, 32)
+	if err != nil {
+		t.Fatalf("readResource failed after transient errors: %v", err)
+	}
+	if string(data) != "ok" || attempts.Load() != 3 {
+		t.Fatalf("unexpected retry result: data=%q attempts=%d", data, attempts.Load())
+	}
+}
+
+func TestReadResourceKeepsCloudflareCookieAcrossRetry(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("Server", "cloudflare")
+			http.SetCookie(w, &http.Cookie{Name: "__cf_bm", Value: "fixture", Path: "/"})
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.Header.Get("Cookie") != "__cf_bm=fixture" {
+			t.Fatalf("retry did not send Cloudflare cookie: %q", r.Header.Get("Cookie"))
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	data, err := readResource(newDownloadClient(server.URL), server.URL, 32)
+	if err != nil || string(data) != "ok" || attempts.Load() != 2 {
+		t.Fatalf("unexpected cookie retry result: data=%q err=%v attempts=%d", data, err, attempts.Load())
+	}
+}
+
 func TestExtXMapParsing(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

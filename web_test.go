@@ -104,6 +104,33 @@ func defaultProfile(host string) SiteProfile {
 	return SiteProfile{Name: "測試設定", Enabled: true, Mode: "m3u8", MediaHosts: []string{host}, WaitSeconds: 6, Concurrency: 3}
 }
 
+func TestMissAVTemplateMatchesCLIHeaders(t *testing.T) {
+	p := templates()[0]
+	if p.Name != "MissAV（直接 M3U8）" || p.Mode != "m3u8" || !p.Enabled {
+		t.Fatalf("unexpected MissAV template: %+v", p)
+	}
+	u, err := url.Parse("https://surrit.com/video/index.m3u8")
+	if err != nil || !anyHost(p.MediaHosts, u) {
+		t.Fatalf("MissAV template does not match surrit.com: %v", err)
+	}
+
+	h := make(http.Header)
+	applyRules(h, p.DownloadHeaders, u.String(), u.String(), true)
+	if got := h.Get("Referer"); got != "https://missav.ai/" {
+		t.Fatalf("Referer = %q", got)
+	}
+	const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+	if got := h.Get("User-Agent"); got != userAgent {
+		t.Fatalf("User-Agent = %q", got)
+	}
+
+	other := make(http.Header)
+	applyRules(other, p.DownloadHeaders, "https://missav.ai/watch", u.String(), true)
+	if other.Get("Referer") != "" || other.Get("User-Agent") != "" {
+		t.Fatalf("MissAV download headers leaked to a non-media host: %v", other)
+	}
+}
+
 var fixtureOnce sync.Once
 var fixtureData []byte
 var fixtureErr error

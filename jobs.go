@@ -494,6 +494,7 @@ func (m *JobManager) execute(ctx context.Context, id string) {
 			// Playlist query defaults are applied separately to discovered media URLs.
 			u, _ := url.Parse(source)
 			source = addQueryDefaults(u, o.QueryDefaults, "playlist").String()
+			m.inheritResume(j, name)
 			var lastEmit time.Time
 			lastPhase := ""
 			type sample struct {
@@ -599,6 +600,34 @@ func (m *JobManager) execute(ctx context.Context, id string) {
 	m.publish(j, "job.finished")
 	m.prune()
 }
+
+// Transfer retained parts to the retry job before its workers start. os.Root
+// confines the move, and the manager lock excludes concurrent job deletion.
+func (m *JobManager) inheritResume(j *Job, outputName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	previous := m.jobs[j.RetryOf]
+	if previous == nil || !terminal(previous.State) {
+		return
+	}
+	root, err := os.OpenRoot(m.root)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	name := ".resume-" + resourceHash(filepath.Base(outputName))[:16]
+	from := filepath.Join(previous.ID, name)
+	info, err := root.Lstat(from)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	if err := root.Mkdir(j.ID, 0700); err != nil && !os.IsExist(err) {
+		return
+	}
+	if err := root.Rename(from, filepath.Join(j.ID, name)); err == nil {
+		m.log(j, "已接續前次任務的切片暫存；下載時會驗證來源版本")
+	}
+}
 func safeError(e error) string {
 	s := e.Error()
 	for _, known := range []string{"HTTP 403: Cloudflare", "HTTP 403:", "FFmpeg 轉封裝失敗", "等待期間未捕獲", "網頁偵測失敗", "切片超過", "播放清單沒有", "無法建立", "合併寫入失敗", "發布 MP4 失敗", "expected a direct M3U8", "empty playlist", "unsupported encryption"} {
@@ -618,6 +647,10 @@ func safeError(e error) string {
 		}
 	}
 	if strings.Contains(s, "個切片下載失敗") {
+		if start := strings.Index(s, "（原因："); start >= 0 {
+			reason := strings.TrimSuffix(s[start+len("（原因："):], "）")
+			return "切片下載或解密失敗：" + reason + "；未發布不完整 MP4"
+		}
 		return "切片下載或解密失敗，未發布不完整 MP4"
 	}
 	if strings.Contains(s, "HTTP 狀態碼異常:") {

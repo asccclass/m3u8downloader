@@ -5,3 +5,6 @@ downloads/
 *.test
 test-results/
 *.mp4
+.resume-*/
+.segments-*/
+*.txt

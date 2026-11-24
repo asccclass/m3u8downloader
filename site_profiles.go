@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -443,6 +444,10 @@ func applyRules(h http.Header, rs []HeaderRule, raw, initial string, cookieLimit
 	origin, _ := url.Parse(initial)
 	for _, r := range rs {
 		// Strip inherited configured headers first, including headers copied across redirects.
+		jarValue := ""
+		if strings.EqualFold(r.Name, "Cookie") {
+			jarValue = h.Get("Cookie")
+		}
 		h.Del(r.Name)
 		allowed := sameOriginHost(u, origin)
 		if len(r.TargetHosts) > 0 {
@@ -452,7 +457,11 @@ func applyRules(h http.Header, rs []HeaderRule, raw, initial string, cookieLimit
 			allowed = allowed && sameOriginHost(u, origin)
 		}
 		if allowed && !r.Clear && r.Value != "" {
-			h.Set(r.Name, r.Value)
+			if jarValue != "" && strings.EqualFold(r.Name, "Cookie") {
+				h.Set(r.Name, r.Value+"; "+jarValue)
+			} else {
+				h.Set(r.Name, r.Value)
+			}
 		}
 	}
 }
@@ -460,15 +469,19 @@ func applyRules(h http.Header, rs []HeaderRule, raw, initial string, cookieLimit
 type ruleTransport struct {
 	rules   []HeaderRule
 	initial string
+	base    http.RoundTripper
 }
+
+func (t *ruleTransport) CloseIdleConnections() { closeTransport(t.base) }
 
 func (t *ruleTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	applyRules(r.Header, t.rules, r.URL.String(), t.initial, true)
-	return http.DefaultTransport.RoundTrip(r)
+	return t.base.RoundTrip(r)
 }
 func profileClient(initial string, rules []HeaderRule) *http.Client {
-	return &http.Client{Timeout: 30 * second, Transport: &ruleTransport{clone(rules), initial}}
+	jar, _ := cookiejar.New(nil)
+	return &http.Client{Timeout: 30 * second, Jar: jar, Transport: &ruleTransport{clone(rules), initial, newClearanceTransport()}}
 }
 
 type JobRequest struct {

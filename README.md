@@ -183,7 +183,11 @@ go run . -m3u8 "https://example.com/index.m3u8" -out "movie.mp4" -referer "https
 
 只需提供來源需要的標頭。這些設定會用於下載播放清單、子播放清單、影片切片及 AES 金鑰；Cookie 僅傳送至最初 M3U8 網址的同一主機與連接埠，不會傳給其他來源。這些參數不影響網頁偵測時的瀏覽器。
 
-HTTP 403 表示來源拒絕存取。若顯示 Cloudflare 拒絕存取，來源仍可能要求瀏覽器驗證或限制 IP；補上標頭不保證可下載。若瀏覽器也無法播放，請先確認來源網址與存取權限。
+CLI 與 Web 下載遇到 Cloudflare HTTP 403 時，會自動使用專案既有的 chromedp 啟動本機無頭 Chrome，最多等待 20 秒取得 `cf_clearance`，再以瀏覽器的 User-Agent 與 Cookie 重送請求。適用於播放清單、子播放清單、切片及金鑰，不需額外安裝 go-rod 或 tls-client。
+
+驗證入口優先使用與被拒絕網址同源的 Referer，否則使用該來源首頁。請用 `-referer` 或網站設定提供實際播放頁；不同 CDN 的驗證不能共用。每個下載用戶端對每個來源只嘗試一次瀏覽器驗證，並行切片共用結果。工作階段僅存在記憶體，Cookie 遵守路徑、Secure 與到期時間，且不跨主機、連接埠或協定傳送。
+
+此功能不是保證通過 Cloudflare：互動 CAPTCHA、IP 封鎖、過期網址、瀏覽器指紋或 TLS 檢查仍可能拒絕請求。未取得通行 Cookie 時會回報驗證失敗；Cookie 取得後若仍遭拒絕，會回報 HTTP 403。程式不會自動解 CAPTCHA，也不會變更出口 IP。若瀏覽器也無法播放，請先確認來源網址與存取權限。
 
 ## 參數
 

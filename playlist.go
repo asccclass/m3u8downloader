@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +26,7 @@ func parseM3U8(targetURL string) ([]Segment, error) {
 type downloadTransport struct {
 	headers    http.Header
 	cookieHost string
+	base       http.RoundTripper
 }
 
 func (t *downloadTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -31,10 +35,15 @@ func (t *downloadTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		if strings.EqualFold(name, "Cookie") && !strings.EqualFold(request.URL.Host, t.cookieHost) {
 			continue
 		}
+		if strings.EqualFold(name, "Cookie") {
+			values = append(append([]string(nil), values...), request.Header.Values("Cookie")...)
+		}
 		request.Header[name] = append([]string(nil), values...)
 	}
-	return http.DefaultTransport.RoundTrip(request)
+	return t.base.RoundTrip(request)
 }
+
+func (t *downloadTransport) CloseIdleConnections() { closeTransport(t.base) }
 
 func newDownloadClient(targetURL string, headers ...http.Header) *http.Client {
 	configured := make(http.Header)
@@ -48,9 +57,11 @@ func newDownloadClient(targetURL string, headers ...http.Header) *http.Client {
 	if parsed != nil {
 		host = parsed.Host
 	}
+	jar, _ := cookiejar.New(nil)
 	return &http.Client{
 		Timeout:   30 * time.Second,
-		Transport: &downloadTransport{headers: configured, cookieHost: host},
+		Jar:       jar,
+		Transport: &downloadTransport{headers: configured, cookieHost: host, base: newClearanceTransport()},
 	}
 }
 
@@ -62,6 +73,32 @@ func responseStatusError(resp *http.Response) error {
 		return fmt.Errorf("HTTP 403: 來源拒絕存取，請確認網址未過期，或設定播放頁的 -referer、-user-agent 與 -cookie")
 	}
 	return fmt.Errorf("HTTP 狀態碼異常: %d", resp.StatusCode)
+}
+
+// One initial request plus eight retries. The fixed pause is intentional: it
+// gives the CDN a chance to clear a transient rate-limit or edge failure.
+// When a Cloudflare clearance is being re-acquired mid-download, the extra
+// attempts ensure the segment is retried until the browser session is ready.
+const resourceAttempts = 9
+
+func retryableStatus(status int) bool {
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
+}
+
+func retryableResponse(resp *http.Response) bool {
+	return retryableStatus(resp.StatusCode) ||
+		(resp.StatusCode == http.StatusForbidden && strings.EqualFold(resp.Header.Get("Server"), "cloudflare"))
+}
+
+// CDN segment requests can fail transiently (connection reset, 429 or 5xx).
+// A single failed segment must not invalidate an otherwise valid long VOD.
+func readResource(client *http.Client, target string, limit int64) ([]byte, error) {
+	dir, err := os.MkdirTemp("", "m3u8-resource-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	return readResourceFile(context.Background(), client, target, filepath.Join(dir, "resource.part"), limit)
 }
 
 func parsePlaylist(targetURL string, visited map[string]bool, client *http.Client) ([]Segment, error) {
@@ -255,20 +292,18 @@ func parseMapTag(tagLine, baseUrlStr, searchParams string) string {
 	return resolveMediaURL(baseUrlStr, sub, searchParams)
 }
 
-func downloadAndDecryptSegment(client *http.Client, seg Segment, keyCache *map[string][]byte, mu *sync.Mutex) ([]byte, error) {
-	resp, err := client.Get(seg.URL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+type segmentResume struct {
+	ctx  context.Context
+	path string
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, responseStatusError(resp)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024+1))
-	if len(data) > 64*1024*1024 {
-		return nil, fmt.Errorf("segment exceeds 64 MiB")
+func downloadAndDecryptSegment(client *http.Client, seg Segment, keyCache *map[string][]byte, mu *sync.Mutex, resume ...segmentResume) ([]byte, error) {
+	var data []byte
+	var err error
+	if len(resume) > 0 {
+		data, err = readResourceFile(resume[0].ctx, client, seg.URL, resume[0].path, 64*1024*1024)
+	} else {
+		data, err = readResource(client, seg.URL, 64*1024*1024)
 	}
 	if err != nil {
 		return nil, err
@@ -281,20 +316,10 @@ func downloadAndDecryptSegment(client *http.Client, seg Segment, keyCache *map[s
 	mu.Lock()
 	keyData, exists := (*keyCache)[seg.KeyURI]
 	if !exists {
-		keyResp, err := client.Get(seg.KeyURI)
+		keyData, err = readResource(client, seg.KeyURI, 32)
 		if err != nil {
 			mu.Unlock()
 			return nil, fmt.Errorf("取得金鑰失敗: %v", err)
-		}
-		defer keyResp.Body.Close()
-		if keyResp.StatusCode != http.StatusOK {
-			mu.Unlock()
-			return nil, fmt.Errorf("取得金鑰失敗: %w", responseStatusError(keyResp))
-		}
-		keyData, err = io.ReadAll(io.LimitReader(keyResp.Body, 33))
-		if err != nil {
-			mu.Unlock()
-			return nil, fmt.Errorf("讀取金鑰失敗: %v", err)
 		}
 		(*keyCache)[seg.KeyURI] = keyData
 	}
@@ -310,6 +335,9 @@ func downloadAndDecryptSegment(client *http.Client, seg Segment, keyCache *map[s
 		}
 	}
 
+	if len(keyData) != 16 {
+		return nil, fmt.Errorf("金鑰長度無效: %d bytes", len(keyData))
+	}
 	block, err := aes.NewCipher(keyData)
 	if err != nil {
 		return nil, err
