@@ -111,21 +111,37 @@ func downloadContext(ctx context.Context, source, output string, concurrency int
 	if len(segments) == 0 {
 		return fmt.Errorf("播放清單沒有可下載的切片")
 	}
-	if err = os.MkdirAll(filepath.Dir(output), 0700); err != nil {
+	outputDir := filepath.Dir(output)
+	dirExisted := true
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		dirExisted = false
+	}
+	if err = os.MkdirAll(outputDir, 0700); err != nil {
 		return fmt.Errorf("無法建立輸出目錄")
 	}
-	spool, err := os.MkdirTemp(filepath.Dir(output), ".segments-")
+	spool, err := os.MkdirTemp(outputDir, ".segments-")
 	if err != nil {
+		if !dirExisted {
+			os.RemoveAll(outputDir)
+		}
 		return fmt.Errorf("無法建立切片暫存目錄")
 	}
 	defer os.RemoveAll(spool)
 	resumeDir, err := prepareResumeDir(output)
 	if err != nil {
+		if !dirExisted {
+			os.RemoveAll(outputDir)
+		}
 		return err
 	}
+	var success bool
+	preserve := false
 	defer func() {
-		if ctx.Err() != nil {
+		if !success {
 			os.RemoveAll(resumeDir)
+			if !dirExisted && !preserve {
+				os.RemoveAll(outputDir)
+			}
 		}
 	}()
 	tr.segments = map[string]bool{}
@@ -221,7 +237,7 @@ loop:
 	}
 	tsName := ts.Name()
 	closed := false
-	preserve := false
+	preserve = false
 	defer func() {
 		if !closed {
 			ts.Close()
@@ -281,6 +297,7 @@ loop:
 	}
 	// Raw encrypted parts are useful only until the MP4 is successfully published.
 	os.RemoveAll(resumeDir)
+	success = true
 	p.Phase = "completed"
 	report()
 	return nil

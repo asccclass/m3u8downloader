@@ -694,8 +694,8 @@ func isPage(o Resolved) bool {
 }
 func templates() []SiteProfile {
 	return []SiteProfile{
-		{Name: "MissAV（直接 M3U8）", Enabled: true, PageHosts: []string{"missav.ai"}, MediaHosts: []string{"surrit.com"}, Mode: "m3u8", WaitSeconds: 6, Concurrency: 6, DownloadHeaders: []HeaderRule{{Name: "Referer", Value: "https://missav.ai/", TargetHosts: []string{"surrit.com:443"}}, {Name: "User-Agent", Value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", TargetHosts: []string{"surrit.com:443"}}}},
-		{Name: "HL365（網頁偵測）", Enabled: true, PageHosts: []string{"hl365.com"}, MediaHosts: []string{}, Mode: "page", WaitSeconds: 6, Concurrency: 6},
+		{Name: "MissAV（直接 M3U8）", Enabled: true, PageHosts: []string{"missav.ai", "*.missav.ai"}, MediaHosts: []string{"surrit.com", "*.surrit.com"}, Mode: "m3u8", WaitSeconds: 6, Concurrency: 6, DownloadHeaders: []HeaderRule{{Name: "Referer", Value: "https://missav.ai/", TargetHosts: []string{"surrit.com:443", "*.surrit.com:443"}}, {Name: "User-Agent", Value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", TargetHosts: []string{"surrit.com:443", "*.surrit.com:443"}}}},
+		{Name: "HL365（網頁偵測）", Enabled: true, PageHosts: []string{"hl365.com", "*.hl365.com"}, MediaHosts: []string{}, Mode: "page", WaitSeconds: 6, Concurrency: 6},
 	}
 }
 

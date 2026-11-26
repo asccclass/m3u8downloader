@@ -113,9 +113,13 @@ func TestMissAVTemplateMatchesCLIHeaders(t *testing.T) {
 	if err != nil || !anyHost(p.MediaHosts, u) {
 		t.Fatalf("MissAV template does not match surrit.com: %v", err)
 	}
+	uSub, err := url.Parse("https://c.surrit.com/video/index.m3u8")
+	if err != nil || !anyHost(p.MediaHosts, uSub) {
+		t.Fatalf("MissAV template does not match c.surrit.com: %v", err)
+	}
 
 	h := make(http.Header)
-	applyRules(h, p.DownloadHeaders, u.String(), u.String(), true)
+	applyRules(h, p.DownloadHeaders, uSub.String(), uSub.String(), true)
 	if got := h.Get("Referer"); got != "https://missav.ai/" {
 		t.Fatalf("Referer = %q", got)
 	}

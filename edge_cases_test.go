@@ -211,3 +211,51 @@ func TestThroughputReturnsToZeroDuringSilentSegment(t *testing.T) {
 		t.Fatal("idle throughput did not reach zero", sawPositive, zero, final.State)
 	}
 }
+
+func TestDownloadFailureRemovesCreatedDirectory(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/index.m3u8" {
+			fmt.Fprint(w, "#EXTM3U\n#EXTINF:1,\n/seg.ts\n#EXT-X-ENDLIST\n")
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer source.Close()
+
+	root := t.TempDir()
+	newDir := filepath.Join(root, "new_created_dir")
+	target := filepath.Join(newDir, "output.mp4")
+
+	err := downloadContext(context.Background(), source.URL+"/index.m3u8", target, 1, false, profileClient(source.URL, nil), nil)
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	if _, e := os.Stat(newDir); !os.IsNotExist(e) {
+		t.Fatalf("created directory %s was not removed on download failure", newDir)
+	}
+}
+
+func TestJobFailureRemovesJobDirectory(t *testing.T) {
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/index.m3u8" {
+			fmt.Fprint(w, "#EXTM3U\n#EXTINF:1,\n/seg.ts\n#EXT-X-ENDLIST\n")
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer source.Close()
+
+	a, _ := testApp(t)
+	j, err := a.jobs.add(Resolved{URL: source.URL + "/index.m3u8", Mode: "m3u8", OutputName: "fail.mp4", Concurrency: 1}, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := waitJob(t, a.jobs, j.ID)
+	if final.State != "failed" {
+		t.Fatalf("expected job to fail, got %s", final.State)
+	}
+	jobDir := filepath.Join(a.jobs.root, j.ID)
+	if _, e := os.Stat(jobDir); !os.IsNotExist(e) {
+		t.Fatalf("job directory %s was not removed on failed job", jobDir)
+	}
+}

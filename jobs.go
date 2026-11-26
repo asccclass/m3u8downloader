@@ -596,6 +596,9 @@ func (m *JobManager) execute(ctx context.Context, id string) {
 	j.FinishedAt = &now
 	j.cancel = nil
 	clearSecrets(&j.input)
+	if j.Succeeded == 0 {
+		removeJobDirectory(m.root, id)
+	}
 	m.log(j, "任務結束："+j.State)
 	m.publish(j, "job.finished")
 	m.prune()
